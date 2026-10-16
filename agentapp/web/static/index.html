@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Console</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --border: #e3e2dc;
+    --accent: #3b5bdb; --accent-text: #ffffff; --ok: #2b8a3e; --warn: #b36b00; --bad: #c92a2a;
+    --code-bg: #f1f0ec; --shadow: 0 1px 2px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151514; --panel: #1e1e1c; --text: #ecebe6; --muted: #9a9993; --border: #33322f;
+      --accent: #7a94f5; --accent-text: #0e0e0d; --ok: #69db7c; --warn: #ffc078; --bad: #ff8787;
+      --code-bg: #262624; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .app { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+  aside { border-right: 1px solid var(--border); padding: 16px; background: var(--panel); overflow-y: auto; max-height: 100vh; position: sticky; top: 0; }
+  aside h1 { font-size: 16px; margin: 0 0 12px; }
+  .run-item { display: block; width: 100%; text-align: left; border: 1px solid transparent; background: none; color: inherit; padding: 8px; border-radius: 8px; cursor: pointer; font: inherit; }
+  .run-item:hover { background: var(--code-bg); }
+  .run-item.active { border-color: var(--border); background: var(--code-bg); }
+  .run-item .task { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+  .run-item .meta { font-size: 12px; color: var(--muted); }
+  main { padding: 24px; max-width: 920px; width: 100%; }
+  form { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); }
+  textarea { width: 100%; min-height: 84px; resize: vertical; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font: inherit; background: var(--bg); color: var(--text); }
+  .row { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 10px; flex-wrap: wrap; }
+  label.check { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  button.primary { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 8px; padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.secondary { background: none; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 24px 0 8px; }
+  .header h2 { font-size: 17px; margin: 0; overflow-wrap: anywhere; }
+  .badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; }
+  .s-completed { color: var(--ok); } .s-running { color: var(--accent); }
+  .s-partial, .s-needs_input, .s-completed_unverified, .s-no_report, .s-limit_reached, .s-cancelled { color: var(--warn); }
+  .s-failed, .s-error, .s-refused { color: var(--bad); }
+  .trace { display: flex; flex-direction: column; gap: 8px; }
+  .ev { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .ev .kind { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+  .ev pre { margin: 6px 0 0; padding: 8px; background: var(--code-bg); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.45 ui-monospace, Consolas, monospace; max-height: 260px; overflow: auto; }
+  .ev.err { border-color: var(--bad); }
+  .ev.approval { border: 2px solid var(--warn); }
+  .ev.report { border: 2px solid var(--border); }
+  .ev ul { margin: 6px 0 0; padding-left: 20px; }
+  .verdict-ok { color: var(--ok); } .verdict-bad { color: var(--bad); font-weight: 600; }
+  .empty { color: var(--muted); padding: 24px 0; }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; }
+    aside { position: static; max-height: 220px; border-right: 0; border-bottom: 1px solid var(--border); }
+    main { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>Agent Console</h1>
+    <button class="secondary" id="new" style="width:100%;margin-bottom:12px">New task</button>
+    <div id="runs"></div>
+  </aside>
+  <main>
+    <form id="form">
+      <textarea id="task" placeholder="Describe a task, e.g. &quot;Create notes/todo.md with three items and verify it&quot;" required></textarea>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="auto"> Auto-approve code execution and web access</label>
+        <button class="primary" type="submit" id="go">Run</button>
+      </div>
+    </form>
+    <div id="view"><p class="empty">Results, tool calls and approvals appear here.</p></div>
+  </main>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+let current = null, lastSeq = 0, timer = null;
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;  // always textContent: tool output is untrusted
+  return n;
+}
+function fmt(v) { return typeof v === "string" ? v : JSON.stringify(v, null, 2); }
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+
+async function loadRuns() {
+  const runs = await api("/api/runs");
+  const box = $("runs"); box.replaceChildren();
+  if (!runs.length) box.append(el("p", "empty", "No runs yet."));
+  for (const r of runs) {
+    const b = el("button", "run-item" + (r.id === current ? " active" : ""));
+    b.append(el("span", "task", r.task));
+    b.append(el("span", "meta", `${new Date(r.created_at * 1000).toLocaleString()} · ${r.status}`));
+    b.onclick = () => openRun(r.id);
+    box.append(b);
+  }
+}
+
+function renderEvent(e) {
+  const p = e.payload, t = e.type;
+  if (t === "run_started") return el("div", "ev", `Started on ${p.model}`);
+  if (t === "llm_response") {
+    if (!p.text) return null;
+    const d = el("div", "ev"); d.append(el("div", "kind", "Agent")); d.append(el("div", "", p.text)); return d;
+  }
+  if (t === "plan") {
+    const d = el("div", "ev"); d.append(el("div", "kind", "Plan"));
+    const ul = el("ul"); for (const s of p.steps) ul.append(el("li", "", `[${s.status}] ${s.step}`));
+    d.append(ul); return d;
+  }
+  if (t === "tool_call") {
+    const d = el("div", "ev"); d.append(el("div", "kind", `Tool call · ${p.tool} · ${p.call_id}`));
+    d.append(el("pre", "", fmt(p.arguments))); return d;
+  }
+  if (t === "tool_result") {
+    const d = el("div", "ev" + (p.ok ? "" : " err")); d.append(el("div", "kind", `${p.ok ? "Result" : "Error"} · ${p.tool}`));
+    d.append(el("pre", "", p.output)); return d;
+  }
+  if (t === "approval") return p.approved && p.by === "policy" ? null : el("div", "ev" + (p.approved ? "" : " err"), `${p.tool}: ${p.approved ? "approved" : "denied"} (${p.by}) ${p.reason}`);
+  if (t === "harness_notice") return el("div", "ev", `Harness: ${p.notice}`);
+  if (t === "args_coerced") return el("div", "ev", `Harness fixed ${p.tool} argument types: ${p.changes.join("; ")}`);
+  if (t === "llm_error" || t === "internal_error") return el("div", "ev err", p.error);
+  if (t === "run_finished") return renderReport(p.status, p.report, p);
+  return null;
+}
+
+function renderReport(status, report, p) {
+  report = report || {};
+  const d = el("div", "ev report");
+  const head = el("div", "row"); head.style.marginTop = "0";
+  head.append(el("strong", "", "Final report")); head.append(el("span", `badge s-${status}`, status));
+  d.append(head);
+  if (report.summary) d.append(el("p", "", report.summary));
+  if (report.evidence && report.evidence.length) {
+    d.append(el("div", "kind", "Evidence (checked against the audit trail)"));
+    const ul = el("ul");
+    for (const ev of report.evidence) {
+      const li = el("li"); li.append(el("span", "", ev.claim + " "));
+      li.append(el("span", ev.verdict === "ok" ? "verdict-ok" : "verdict-bad", `[${ev.verdict}]`));
+      ul.append(li);
+    }
+    d.append(ul);
+  }
+  if (report.unverified && report.unverified.length) {
+    d.append(el("div", "kind", "Not verified")); const ul = el("ul");
+    for (const u of report.unverified) ul.append(el("li", "", u)); d.append(ul);
+  }
+  if (report.harness_issues && report.harness_issues.length) {
+    d.append(el("div", "kind", "Harness check")); const ul = el("ul");
+    for (const u of report.harness_issues) ul.append(el("li", "verdict-bad", u)); d.append(ul);
+  }
+  if (report.text && status !== "completed") d.append(el("pre", "", report.text));
+  if (p) d.append(el("div", "kind", `${p.steps} steps · ${p.input_tokens} in / ${p.output_tokens} out tokens`));
+  return d;
+}
+
+let shownApprovals = "";
+function renderApprovals(list) {
+  const box = $("approvals"); if (!box) return;
+  const key = list.map((a) => a.id).join(",");
+  if (key === shownApprovals) return;  // don't rebuild buttons under the user's cursor
+  shownApprovals = key; box.replaceChildren();
+  for (const a of list) {
+    const d = el("div", "ev approval");
+    d.append(el("div", "kind", `Approval needed · ${a.tool} (${a.risk})`));
+    d.append(el("pre", "", fmt(a.arguments)));
+    const row = el("div", "row");
+    const yes = el("button", "primary", "Approve"), no = el("button", "secondary", "Deny");
+    const answer = async (approve) => { yes.disabled = no.disabled = true;
+      await api(`/api/runs/${current}/approvals/${a.id}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({approve})}).catch(alert);
+      poll(); };
+    yes.onclick = () => answer(true); no.onclick = () => answer(false);
+    row.append(no, yes); d.append(row); box.append(d);
+  }
+}
+
+async function poll() {
+  if (!current) return;
+  const id = current;
+  let data;
+  try { data = await api(`/api/runs/${id}?after=${lastSeq}`); } catch (e) { return; }
+  if (id !== current) return;
+  const trace = $("trace");
+  for (const e of data.events) {
+    if (e.seq <= lastSeq) continue;  // overlapping polls can return the same events
+    lastSeq = e.seq; const n = renderEvent(e); if (n) trace.append(n);
+  }
+  renderApprovals(data.pending_approvals);
+  const badge = $("status"); badge.textContent = data.run.status; badge.className = `badge s-${data.run.status}`;
+  const running = data.run.status === "running";
+  $("cancel").hidden = !running;
+  clearTimeout(timer);
+  if (running) timer = setTimeout(poll, 1000); else loadRuns();
+}
+
+function openRun(id) {
+  current = id; lastSeq = 0; shownApprovals = ""; clearTimeout(timer);
+  const view = $("view"); view.replaceChildren();
+  const header = el("div", "header"); const h = el("h2", "", "Run " + id);
+  const right = el("div", "row"); right.style.marginTop = "0";
+  const cancel = el("button", "secondary", "Cancel"); cancel.id = "cancel"; cancel.hidden = true;
+  cancel.onclick = () => api(`/api/runs/${id}/cancel`, {method: "POST"}).catch(alert);
+  const badge = el("span", "badge", "…"); badge.id = "status";
+  right.append(cancel, badge); header.append(h, right);
+  const approvals = el("div", "trace"); approvals.id = "approvals";
+  const trace = el("div", "trace"); trace.id = "trace";
+  view.append(header, approvals, trace);
+  api(`/api/runs/${id}`).then((d) => { h.textContent = d.run.task; }).catch(() => {});
+  loadRuns(); poll();
+}
+
+$("form").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const task = $("task").value.trim(); if (!task) return;
+  $("go").disabled = true;
+  try {
+    const r = await api("/api/runs", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({task, auto_approve: $("auto").checked})});
+    $("task").value = ""; openRun(r.run_id);
+  } catch (e) { alert(e.message); } finally { $("go").disabled = false; }
+};
+$("new").onclick = () => { current = null; clearTimeout(timer); $("view").replaceChildren(el("p", "empty", "Results, tool calls and approvals appear here.")); $("task").focus(); loadRuns(); };
+loadRuns();
+</script>
+</body>
+</html>

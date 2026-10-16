@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentapp"
+version = "0.1.0"
+description = "General-purpose tool-using agent: plan, act, verify, report honestly."
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=1.14",
+    "jsonschema>=4.20",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx2"]
+
+[project.scripts]
+agent = "agentapp.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agentapp*"]
+
+[tool.setuptools.package-data]
+agentapp = ["web/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
